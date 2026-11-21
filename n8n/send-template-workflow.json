@@ -1,0 +1,70 @@
+{
+  "name": "Hello: send a WhatsApp template",
+  "nodes": [
+    {
+      "parameters": {},
+      "id": "6f1d3c0e-1b6a-4a52-9c1e-0a1f6b7d2c01",
+      "name": "When clicking Execute workflow",
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            { "id": "a1", "name": "phone_number_id", "value": "123456789012345", "type": "string" },
+            { "id": "a2", "name": "to", "value": "+919999999999", "type": "string" },
+            { "id": "a3", "name": "template_name", "value": "order_shipped", "type": "string" },
+            { "id": "a4", "name": "language", "value": "en", "type": "string" },
+            { "id": "a5", "name": "name", "value": "Asha", "type": "string" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "6f1d3c0e-1b6a-4a52-9c1e-0a1f6b7d2c02",
+      "name": "Settings",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [240, 0]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://api.lakshyapocketlab.com/v1/{{ $json.phone_number_id }}/messages",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBearerAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Idempotency-Key", "value": "={{ $execution.id }}-{{ $json.to }}" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ messaging_product: 'whatsapp', to: $json.to, type: 'template', template: { name: $json.template_name, language: { code: $json.language }, components: [ { type: 'body', parameters: [ { type: 'text', text: $json.name } ] } ] } }) }}",
+        "options": {}
+      },
+      "id": "6f1d3c0e-1b6a-4a52-9c1e-0a1f6b7d2c03",
+      "name": "Send template (Hello)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [480, 0],
+      "credentials": {
+        "httpBearerAuth": { "id": "REPLACE_ME", "name": "Hello API key" }
+      }
+    }
+  ],
+  "connections": {
+    "When clicking Execute workflow": {
+      "main": [[{ "node": "Settings", "type": "main", "index": 0 }]]
+    },
+    "Settings": {
+      "main": [[{ "node": "Send template (Hello)", "type": "main", "index": 0 }]]
+    }
+  },
+  "active": false,
+  "settings": { "executionOrder": "v1" },
+  "pinData": {},
+  "tags": []
+}

@@ -1,0 +1,19 @@
+{
+  "name": "hello-example-node-send-template",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Send a WhatsApp template message with the Hello Node.js SDK.",
+  "scripts": {
+    "start": "tsx send-template.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@lakshyapocketlab/hello": "^0.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.43",
+    "tsx": "^4.20.0",
+    "typescript": "5.9"
+  }
+}

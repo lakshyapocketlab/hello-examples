@@ -1,0 +1,20 @@
+{
+  "name": "hello-example-webhook-node-express",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Receive WhatsApp webhooks (Hello direct webhook / Meta override) with Express.",
+  "scripts": {
+    "start": "tsx server.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "express": "^4.21.2"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^20.19.43",
+    "tsx": "^4.20.0",
+    "typescript": "5.9"
+  }
+}
