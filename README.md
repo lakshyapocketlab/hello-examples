@@ -15,6 +15,9 @@ Sample apps for [Hello](https://lakshyapocketlab.com), the WhatsApp Business API
 | [`webhooks/node-express`](webhooks/node-express) | Node.js (Express) | Receive webhooks: verification handshake and event handling |
 | [`ai-agents/claude-mcp`](ai-agents/claude-mcp) | Guide | Connect Claude Code, Claude Desktop, Cursor or Codex to Hello over MCP |
 | [`n8n`](n8n) | Guide + workflow | Send WhatsApp messages from n8n with the HTTP Request node |
+| [`smoke-test/node`](smoke-test/node) | Node.js (TypeScript) | Live smoke test of the Node SDK against the real API (sends real messages only with `--send`) |
+| [`smoke-test/python`](smoke-test/python) | Python | Live smoke test of the Python SDK against the real API (sends real messages only with `--send`) |
+| [`smoke-test/go`](smoke-test/go) | Go | Live smoke test of the Go SDK against the real API (sends real messages only with `-send`) |
 
 ## Getting started
 

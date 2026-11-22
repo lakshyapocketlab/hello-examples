@@ -1,0 +1,19 @@
+{
+  "name": "hello-example-smoke-test-node",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Live smoke test of the Hello Node.js SDK against the real Hello API.",
+  "scripts": {
+    "start": "tsx smoke-test.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@lakshyapocketlab/hello": "^1.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "tsx": "^4.20.0",
+    "typescript": "7.0"
+  }
+}

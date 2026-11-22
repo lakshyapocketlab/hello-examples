@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        example: [node/send-template, webhooks/node-express]
+        example: [node/send-template, webhooks/node-express, smoke-test/node]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -41,9 +41,13 @@ jobs:
           python -m pip install -r python/send-text/requirements.txt
           python -c "import lakshyapocketlab_hello"
           python -m py_compile python/send-text/send_text.py
+          python -m py_compile smoke-test/python/smoke_test.py
 
   go:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        module: [go/send-template, smoke-test/go]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -52,7 +56,7 @@ jobs:
         with:
           go-version: stable
       - name: gofmt and go vet
-        working-directory: go/send-template
+        working-directory: ${{ matrix.module }}
         run: |
           test -z "$(gofmt -l .)"
           go vet ./...
