@@ -18,6 +18,7 @@ Sample apps for [Hello](https://lakshyapocketlab.com), the WhatsApp Business API
 | [`smoke-test/node`](smoke-test/node) | Node.js (TypeScript) | Live smoke test of the Node SDK against the real API (sends real messages only with `--send`) |
 | [`smoke-test/python`](smoke-test/python) | Python | Live smoke test of the Python SDK against the real API (sends real messages only with `--send`) |
 | [`smoke-test/go`](smoke-test/go) | Go | Live smoke test of the Go SDK against the real API (sends real messages only with `-send`) |
+| [`message-types`](message-types) | Node.js (TypeScript), Python, Go | One example per message type (text, media, location, contacts, interactive, reaction, reply, templates) with delivery-status tracking |
 
 ## Getting started
 

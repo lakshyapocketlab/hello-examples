@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        example: [node/send-template, webhooks/node-express, smoke-test/node]
+        example: [node/send-template, webhooks/node-express, smoke-test/node, message-types/node]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -42,12 +42,14 @@ jobs:
           python -c "import lakshyapocketlab_hello"
           python -m py_compile python/send-text/send_text.py
           python -m py_compile smoke-test/python/smoke_test.py
+          python -m pip install -r message-types/python/requirements.txt
+          python -m py_compile message-types/python/send.py
 
   go:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        module: [go/send-template, smoke-test/go]
+        module: [go/send-template, smoke-test/go, message-types/go]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

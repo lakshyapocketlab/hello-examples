@@ -1,0 +1,19 @@
+{
+  "name": "hello-example-node-message-types",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Send every WhatsApp message type with the Hello Node.js SDK and follow its delivery status.",
+  "scripts": {
+    "start": "tsx send.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@lakshyapocketlab/hello": "^1.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "tsx": "^4.20.0",
+    "typescript": "7.0"
+  }
+}
