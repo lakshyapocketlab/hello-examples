@@ -23,7 +23,10 @@ const API_KEY = env("HELLO_API_KEY");
 const PHONE_NUMBER_ID = env("HELLO_PHONE_NUMBER_ID");
 const TO = env("HELLO_TO");
 const TEMPLATE_NAME = env("HELLO_TEMPLATE_NAME");
-const TEMPLATE_LANGUAGE = env("HELLO_TEMPLATE_LANGUAGE");
+const TEMPLATE_LANGUAGE = env("HELLO_TEMPLATE_LANGUAGE") ?? "en_US";
+const OTP = env("HELLO_OTP") ?? "123456";
+/** --all also sends text, media, location, contacts, list and reaction (needs an open 24h window). */
+const ALL = process.argv.includes("--all");
 const IMAGE_URL = env("HELLO_MEDIA_IMAGE_URL") ?? DEFAULT_IMAGE_URL;
 const DOCUMENT_URL = env("HELLO_MEDIA_DOCUMENT_URL") ?? DEFAULT_DOCUMENT_URL;
 const VIDEO_URL = env("HELLO_MEDIA_VIDEO_URL");
@@ -37,6 +40,10 @@ if (!API_KEY) {
 }
 if (!PHONE_NUMBER_ID) {
   console.error("HELLO_PHONE_NUMBER_ID is not set (see smoke-test/.env.example). Nothing was run.");
+  process.exit(1);
+}
+if (SEND && !TEMPLATE_NAME) {
+  console.error("HELLO_TEMPLATE_NAME is not set. Name an AUTHENTICATION (OTP) template for --send. Nothing was run.");
   process.exit(1);
 }
 if (SEND && !TO) {
@@ -76,6 +83,12 @@ async function sendStep(name: string, wouldDo: string, fn: () => Promise<string>
   await step(name, fn);
 }
 
+/** Extra message types: only with --all (they need the recipient's 24h window to be open). */
+async function extraStep(name: string, wouldDo: string, fn: () => Promise<string>): Promise<void> {
+  if (!ALL) return line("SKIP", name, "needs --all");
+  await sendStep(name, wouldDo, fn);
+}
+
 function recipient(): string {
   if (!TO) throw new Error("HELLO_TO is not set");
   return TO;
@@ -87,39 +100,21 @@ function record(label: string, res: { messages: { id: string; hello_id?: string 
   return `hello_id ${m?.hello_id ?? "?"}`;
 }
 
-function bodyText(t: Template): string {
-  const body = t.components?.find((c) => c.type === "BODY");
-  const text = body?.text;
-  return typeof text === "string" ? text : "";
-}
-
-/** Highest {{n}} in the body; Meta numbers variables from 1 with no gaps. */
-function variableCount(t: Template): number {
-  const indexes = [...bodyText(t).matchAll(/\{\{(\d+)\}\}/g)].map((m) => Number(m[1]));
-  return indexes.length ? Math.max(...indexes) : 0;
-}
-
-/** Usable here when the only placeholders are body variables (header/button variables are not filled). */
-function usable(t: Template): boolean {
-  return !(t.components ?? []).some((c) => c.type !== "BODY" && JSON.stringify(c).includes("{{"));
-}
-
-function pickTemplate(templates: Template[]): Template | undefined {
-  if (TEMPLATE_NAME) {
-    const named = templates.filter(
-      (t) => t.name === TEMPLATE_NAME && (!TEMPLATE_LANGUAGE || t.language === TEMPLATE_LANGUAGE) && usable(t),
-    );
-    return named.find((t) => t.status === "APPROVED") ?? named[0];
+/**
+ * Components for an AUTHENTICATION (OTP) template: the code fills the body {{1}} and the
+ * copy-code / one-tap button. That is the only template shape this smoke test sends, so it
+ * works the same on every account: name the template in HELLO_TEMPLATE_NAME.
+ */
+function otpComponents(t: Template): TemplateComponent[] {
+  if (t.category !== "AUTHENTICATION") {
+    throw new Error(`${t.name} is ${t.category}; HELLO_TEMPLATE_NAME must be an AUTHENTICATION (OTP) template`);
   }
-  const approved = templates.filter((t) => t.status === "APPROVED" && usable(t));
-  return approved.find((t) => variableCount(t) === 0) ?? approved[0];
-}
-
-function bodyComponents(t: Template): TemplateComponent[] | undefined {
-  const n = variableCount(t);
-  if (n === 0) return undefined;
-  const parameters = Array.from({ length: n }, (_, i) => ({ type: "text", text: `Sample ${i + 1}` }));
-  return [{ type: "body", parameters }];
+  const components: TemplateComponent[] = [{ type: "body", parameters: [{ type: "text", text: OTP }] }];
+  const buttons = t.components?.find((c) => String(c.type).toUpperCase() === "BUTTONS")?.buttons;
+  if (Array.isArray(buttons) && buttons.length > 0) {
+    components.push({ type: "button", sub_type: "url", index: "0", parameters: [{ type: "text", text: OTP }] });
+  }
+  return components;
 }
 
 async function download(url: string): Promise<{ bytes: Uint8Array; mime: string }> {
@@ -152,23 +147,16 @@ async function main(): Promise<void> {
     return `waba_id ${match.waba_id}, can_send ${match.can_send}`;
   });
 
-  // 3. templates on the WABA, then pick one
-  await step("3 list templates and pick one", async () => {
+  // 3. templates on the WABA, then find HELLO_TEMPLATE_NAME
+  await step("3 list templates and find HELLO_TEMPLATE_NAME", async () => {
     if (!state.waba) throw new Error("no WABA id from step 2");
     const { data } = await hello.templates.list(state.waba, { limit: 100 });
-    for (const t of data) {
-      console.log(`     ${t.name}  ${t.language}  ${t.status}  ${t.category}  variables=${variableCount(t)}`);
-    }
-    const picked = pickTemplate(data);
-    if (!picked) {
-      throw new Error(
-        TEMPLATE_NAME
-          ? `no usable template named ${TEMPLATE_NAME}${TEMPLATE_LANGUAGE ? ` in ${TEMPLATE_LANGUAGE}` : ""}`
-          : "no APPROVED template this smoke test can fill in",
-      );
-    }
-    state.template = picked;
-    return `using ${picked.name} (${picked.language}, ${picked.status}, ${variableCount(picked)} variables)`;
+    for (const t of data) console.log(`     ${t.name}  ${t.language}  ${t.status}  ${t.category}`);
+    if (!TEMPLATE_NAME) return `${data.length} templates (set HELLO_TEMPLATE_NAME to pick one)`;
+    const found = data.find((t) => t.name === TEMPLATE_NAME && t.language === TEMPLATE_LANGUAGE);
+    if (!found) throw new Error(`no template ${TEMPLATE_NAME} in ${TEMPLATE_LANGUAGE} on WABA ${state.waba}`);
+    state.template = found;
+    return `using ${found.name} (${found.language}, ${found.category}, ${found.status})`;
   });
 
   // 4. get that template by id
@@ -183,20 +171,20 @@ async function main(): Promise<void> {
   // Steps 5-11 send or write. Each one is gated by --send.
 
   // 5. template send
-  await sendStep("5 send template", `send template ${state.template?.name ?? "?"} to ${dest}`, async () => {
+  await sendStep("5 send OTP template", `send template ${TEMPLATE_NAME ?? "<HELLO_TEMPLATE_NAME>"} with code ${OTP} to ${dest}`, async () => {
     const t = state.template;
     if (!t) throw new Error("no template from step 3");
     const res = await hello.messages.sendTemplate(
       PHONE_NUMBER_ID!,
       recipient(),
-      { name: t.name, language: t.language, components: bodyComponents(t) },
+      { name: t.name, language: t.language, components: otpComponents(t) },
       { idempotencyKey: `${RUN_ID}-template` },
     );
     return record("template", res);
   });
 
   // 6. text send, synchronous so the reply carries the wamid needed for the reaction
-  await sendStep("6 send text", `send a text message to ${dest}`, async () => {
+  await extraStep("6 send text", `send a text message to ${dest}`, async () => {
     const res = await hello.messages.sendText(PHONE_NUMBER_ID!, recipient(), `Hello smoke test ${RUN_ID}: text message.`, {
       sync: true,
       idempotencyKey: `${RUN_ID}-text`,
@@ -206,7 +194,7 @@ async function main(): Promise<void> {
   });
 
   // 7. media by link
-  await sendStep("7 send image by link", `send the image at ${IMAGE_URL}`, async () =>
+  await extraStep("7 send image by link", `send the image at ${IMAGE_URL}`, async () =>
     record(
       "image-link",
       await hello.messages.sendMedia(
@@ -217,7 +205,7 @@ async function main(): Promise<void> {
       ),
     ),
   );
-  await sendStep("7 send document by link", `send the document at ${DOCUMENT_URL}`, async () =>
+  await extraStep("7 send document by link", `send the document at ${DOCUMENT_URL}`, async () =>
     record(
       "document-link",
       await hello.messages.sendMedia(
@@ -229,7 +217,7 @@ async function main(): Promise<void> {
     ),
   );
   if (VIDEO_URL) {
-    await sendStep("7 send video by link", `send the video at ${VIDEO_URL}`, async () =>
+    await extraStep("7 send video by link", `send the video at ${VIDEO_URL}`, async () =>
       record(
         "video-link",
         await hello.messages.sendMedia(
@@ -244,7 +232,7 @@ async function main(): Promise<void> {
     line("SKIP", "7 send video by link", "HELLO_MEDIA_VIDEO_URL not set");
   }
   if (AUDIO_URL) {
-    await sendStep("7 send audio by link", `send the audio at ${AUDIO_URL}`, async () =>
+    await extraStep("7 send audio by link", `send the audio at ${AUDIO_URL}`, async () =>
       record(
         "audio-link",
         await hello.messages.sendMedia(
@@ -260,7 +248,7 @@ async function main(): Promise<void> {
   }
 
   // 8. download, upload, send by media id
-  await sendStep("8 upload image and send by media id", `download ${IMAGE_URL}, upload it and send it by id`, async () => {
+  await extraStep("8 upload image and send by media id", `download ${IMAGE_URL}, upload it and send it by id`, async () => {
     const { bytes, mime } = await download(IMAGE_URL);
     const uploaded = await hello.media.upload(PHONE_NUMBER_ID!, bytes, mime || "image/png", "smoke-test.png");
     const res = await hello.messages.sendMedia(
@@ -273,7 +261,7 @@ async function main(): Promise<void> {
   });
 
   // 9. other message types through the raw send
-  await sendStep("9 send location", `send a location to ${dest}`, async () =>
+  await extraStep("9 send location", `send a location to ${dest}`, async () =>
     record(
       "location",
       await hello.messages.send(
@@ -288,7 +276,7 @@ async function main(): Promise<void> {
       ),
     ),
   );
-  await sendStep("9 send contacts", `send a contact card to ${dest}`, async () =>
+  await extraStep("9 send contacts", `send a contact card to ${dest}`, async () =>
     record(
       "contacts",
       await hello.messages.send(
@@ -308,7 +296,7 @@ async function main(): Promise<void> {
       ),
     ),
   );
-  await sendStep("9 send reply buttons", `send reply buttons to ${dest}`, async () =>
+  await sendStep("6 send interactive reply buttons", `send a static reply-buttons message to ${dest}`, async () =>
     record(
       "buttons",
       await hello.messages.send(
@@ -332,7 +320,7 @@ async function main(): Promise<void> {
       ),
     ),
   );
-  await sendStep("9 send list", `send an interactive list to ${dest}`, async () =>
+  await extraStep("9 send list", `send an interactive list to ${dest}`, async () =>
     record(
       "list",
       await hello.messages.send(
@@ -362,7 +350,9 @@ async function main(): Promise<void> {
       ),
     ),
   );
-  if (!SEND) {
+  if (!ALL) {
+    line("SKIP", "9 react to text message", "needs --all");
+  } else if (!SEND) {
     line("DRY", "9 react to text message", `would react ${THUMBS_UP} to the step 6 message`);
   } else if (!state.textWamid) {
     line("SKIP", "9 react to text message", "step 6 returned no wamid (send failed or was queued)");

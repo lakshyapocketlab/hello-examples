@@ -1,14 +1,17 @@
 // Command smoke-test is a live smoke test for github.com/lakshyapocketlab/hello-go
 // against the real Hello API.
 //
-// Steps 1-4 are read-only. Steps 5-11 send real, billed WhatsApp messages and run
-// only with -send (or --send). Every step prints PASS, FAIL, SKIP or DRY; the run
-// continues after a failure. See ../README.md.
+// Steps 1-4 are read-only. With -send, step 5 sends the AUTHENTICATION (OTP) template
+// named in HELLO_TEMPLATE_NAME, and step 6 sends a static reply-buttons message. Every
+// other message type runs only with -all, and needs the recipient's 24-hour window (see
+// ../README.md). Every step prints PASS, FAIL, SKIP or DRY; the run continues after a
+// failure.
 //
 // Usage:
 //
-//	go run .          # dry run
-//	go run . -send    # live
+//	go run .              # dry run
+//	go run . -send        # live: OTP template and reply buttons
+//	go run . -send -all   # live: every message type
 package main
 
 import (
@@ -20,8 +23,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"regexp"
-	"strconv"
 	"strings"
 	"time"
 
@@ -34,8 +35,6 @@ const (
 	thumbsUp           = "\U0001F44D"
 	userAgent          = "hello-smoke-test/1.0"
 )
-
-var placeholderRe = regexp.MustCompile(`\{\{(\d+)\}\}`)
 
 func env(name string) string { return strings.TrimSpace(os.Getenv(name)) }
 
@@ -76,71 +75,36 @@ type sentMessage struct {
 	helloID string
 }
 
-// templateVars returns the highest {{n}} placeholder count in the BODY component.
-func templateVars(t hello.Template) int {
-	highest := 0
+// hasButtons reports whether the template has a BUTTONS component with at least one button.
+func hasButtons(t hello.Template) bool {
 	for _, c := range t.Components {
 		m, ok := c.(map[string]any)
-		if !ok || m["type"] != "BODY" {
+		if !ok || strings.ToUpper(fmt.Sprint(m["type"])) != "BUTTONS" {
 			continue
 		}
-		text, _ := m["text"].(string)
-		for _, match := range placeholderRe.FindAllStringSubmatch(text, -1) {
-			if n, err := strconv.Atoi(match[1]); err == nil && n > highest {
-				highest = n
-			}
+		if buttons, ok := m["buttons"].([]any); ok && len(buttons) > 0 {
+			return true
 		}
 	}
-	return highest
+	return false
 }
 
-// templateUsable is true when the only placeholders are body variables.
-func templateUsable(t hello.Template) bool {
-	for _, c := range t.Components {
-		m, ok := c.(map[string]any)
-		if ok && m["type"] == "BODY" {
-			continue
-		}
-		if strings.Contains(fmt.Sprint(c), "{{") {
-			return false
-		}
+// otpComponents builds the components for an AUTHENTICATION (OTP) template: the code fills
+// body {{1}} and, when the template has a BUTTONS component, the copy-code / one-tap button.
+func otpComponents(t hello.Template, otp string) ([]any, error) {
+	if t.Category != "AUTHENTICATION" {
+		return nil, fmt.Errorf("%s is %s; HELLO_TEMPLATE_NAME must be an AUTHENTICATION (OTP) template", t.Name, t.Category)
 	}
-	return true
-}
-
-func pickTemplate(templates []hello.Template, wanted, wantedLang string) *hello.Template {
-	if wanted != "" {
-		var named []hello.Template
-		for _, t := range templates {
-			if t.Name == wanted && (wantedLang == "" || t.Language == wantedLang) && templateUsable(t) {
-				named = append(named, t)
-			}
-		}
-		for i := range named {
-			if named[i].Status == "APPROVED" {
-				return &named[i]
-			}
-		}
-		if len(named) > 0 {
-			return &named[0]
-		}
-		return nil
+	components := []any{hello.BodyParameters(otp)}
+	if hasButtons(t) {
+		components = append(components, map[string]any{
+			"type":       "button",
+			"sub_type":   "url",
+			"index":      "0",
+			"parameters": []any{map[string]any{"type": "text", "text": otp}},
+		})
 	}
-	var approved []hello.Template
-	for _, t := range templates {
-		if t.Status == "APPROVED" && templateUsable(t) {
-			approved = append(approved, t)
-		}
-	}
-	for i := range approved {
-		if templateVars(approved[i]) == 0 {
-			return &approved[i]
-		}
-	}
-	if len(approved) > 0 {
-		return &approved[0]
-	}
-	return nil
+	return components, nil
 }
 
 func download(ctx context.Context, url string) ([]byte, string, error) {
@@ -167,17 +131,24 @@ func download(ctx context.Context, url string) ([]byte, string, error) {
 
 func main() {
 	send := flag.Bool("send", false, "send real, billed messages (default: dry run)")
+	all := flag.Bool("all", false, "also send the other message types (needs the recipient's 24-hour window)")
 	flag.Parse()
 
 	apiKey := env("HELLO_API_KEY")
 	pnid := env("HELLO_PHONE_NUMBER_ID")
 	to := env("HELLO_TO")
+	templateName := env("HELLO_TEMPLATE_NAME")
+	templateLang := envOr("HELLO_TEMPLATE_LANGUAGE", "en_US")
+	otp := envOr("HELLO_OTP", "123456")
 	switch {
 	case apiKey == "":
 		fmt.Println("HELLO_API_KEY is not set. Copy smoke-test/.env.example to .env, fill it in and load it. Nothing was run.")
 		os.Exit(1)
 	case pnid == "":
 		fmt.Println("HELLO_PHONE_NUMBER_ID is not set (see smoke-test/.env.example). Nothing was run.")
+		os.Exit(1)
+	case *send && templateName == "":
+		fmt.Println("HELLO_TEMPLATE_NAME is not set. Name an AUTHENTICATION (OTP) template for -send. Nothing was run.")
 		os.Exit(1)
 	case *send && to == "":
 		fmt.Println("HELLO_TO is not set. It is needed for -send. Nothing was run.")
@@ -205,8 +176,6 @@ func main() {
 	}
 
 	ctx := context.Background()
-	templateName := env("HELLO_TEMPLATE_NAME")
-	templateLang := env("HELLO_TEMPLATE_LANGUAGE")
 	imageURL := envOr("HELLO_MEDIA_IMAGE_URL", defaultImageURL)
 	documentURL := envOr("HELLO_MEDIA_DOCUMENT_URL", defaultDocumentURL)
 	videoURL := env("HELLO_MEDIA_VIDEO_URL")
@@ -237,6 +206,14 @@ func main() {
 		}
 		step(name, fn)
 	}
+	// extraStep runs the other message types only with -all (and then only with -send).
+	extraStep := func(name, wouldDo string, fn func() (string, error)) {
+		if !*all {
+			line("SKIP", name, "needs --all")
+			return
+		}
+		sendStep(name, wouldDo, fn)
+	}
 
 	// 1. ping
 	step("1 ping", func() (string, error) {
@@ -266,9 +243,9 @@ func main() {
 		return "", fmt.Errorf("no number with phone_number_id %s among %d on this key", pnid, len(numbers))
 	})
 
-	// 3. templates on the WABA, then pick one
+	// 3. templates on the WABA, then find HELLO_TEMPLATE_NAME
 	var picked *hello.Template
-	step("3 list templates and pick one", func() (string, error) {
+	step("3 list templates and find HELLO_TEMPLATE_NAME", func() (string, error) {
 		if waba == "" {
 			return "", errors.New("no WABA id from step 2")
 		}
@@ -277,16 +254,18 @@ func main() {
 			return "", err
 		}
 		for _, t := range list.Data {
-			fmt.Printf("     %s  %s  %s  %s  variables=%d\n", t.Name, t.Language, t.Status, t.Category, templateVars(t))
+			fmt.Printf("     %s  %s  %s  %s\n", t.Name, t.Language, t.Status, t.Category)
 		}
-		picked = pickTemplate(list.Data, templateName, templateLang)
-		if picked == nil {
-			if templateName != "" {
-				return "", fmt.Errorf("no usable template named %s", templateName)
+		if templateName == "" {
+			return fmt.Sprintf("%d templates (set HELLO_TEMPLATE_NAME to pick one)", len(list.Data)), nil
+		}
+		for i := range list.Data {
+			if t := list.Data[i]; t.Name == templateName && t.Language == templateLang {
+				picked = &t
+				return fmt.Sprintf("using %s (%s, %s, %s)", t.Name, t.Language, t.Category, t.Status), nil
 			}
-			return "", errors.New("no APPROVED template this smoke test can fill in")
 		}
-		return fmt.Sprintf("using %s (%s, %s, %d variables)", picked.Name, picked.Language, picked.Status, templateVars(*picked)), nil
+		return "", fmt.Errorf("no template %s in %s on WABA %s", templateName, templateLang, waba)
 	})
 
 	// 4. get template by id
@@ -304,34 +283,26 @@ func main() {
 		return fmt.Sprintf("%s %s %s", got.Name, got.Language, got.Status), nil
 	})
 
-	// 5-11 send or write; each one is gated by -send.
+	// 5-11 send or write. Steps 5 and 6 (reply buttons) send by default; the rest need -all.
 
-	// Sample body parameters for the template's variables.
-	templateComponents := func(t hello.Template) []any {
-		n := templateVars(t)
-		if n == 0 {
-			return nil
-		}
-		values := make([]string, n)
-		for i := range values {
-			values[i] = fmt.Sprintf("Sample %d", i+1)
-		}
-		return []any{hello.BodyParameters(values...)}
-	}
-	templateLabel := "?"
-	if picked != nil {
-		templateLabel = picked.Name
+	templateLabel := templateName
+	if templateLabel == "" {
+		templateLabel = "<HELLO_TEMPLATE_NAME>"
 	}
 
-	// 5. template
-	sendStep("5 send template", "send template "+templateLabel+" to "+to, func() (string, error) {
+	// 5. OTP template
+	sendStep("5 send OTP template", fmt.Sprintf("send template %s with code %s to %s", templateLabel, otp, to), func() (string, error) {
 		if picked == nil {
 			return "", errors.New("no template from step 3")
+		}
+		comps, err := otpComponents(*picked, otp)
+		if err != nil {
+			return "", err
 		}
 		res, err := client.Messages.SendTemplate(ctx, pnid, to, hello.TemplateMessage{
 			Name:       picked.Name,
 			Language:   picked.Language,
-			Components: templateComponents(*picked),
+			Components: comps,
 		}, hello.WithIdempotencyKey(runID+"-template"))
 		if err != nil {
 			return "", err
@@ -341,7 +312,7 @@ func main() {
 
 	// 6. text, synchronous so the reply carries the wamid the reaction needs
 	var textWamid string
-	sendStep("6 send text", "send a text message to "+to, func() (string, error) {
+	extraStep("6 send text", "send a text message to "+to, func() (string, error) {
 		res, err := client.Messages.SendText(ctx, pnid, to, "Hello smoke test "+runID+": text message.",
 			hello.WithSync(), hello.WithIdempotencyKey(runID+"-text"))
 		if err != nil {
@@ -352,7 +323,7 @@ func main() {
 	})
 
 	// 7. media by link
-	sendStep("7 send image by link", "send the image at "+imageURL, func() (string, error) {
+	extraStep("7 send image by link", "send the image at "+imageURL, func() (string, error) {
 		res, err := client.Messages.SendMedia(ctx, pnid, to, hello.MediaMessage{
 			Type: hello.MediaImage, Link: imageURL, Caption: "Smoke test image " + runID,
 		}, hello.WithIdempotencyKey(runID+"-image-link"))
@@ -361,7 +332,7 @@ func main() {
 		}
 		return record("image-link", res), nil
 	})
-	sendStep("7 send document by link", "send the document at "+documentURL, func() (string, error) {
+	extraStep("7 send document by link", "send the document at "+documentURL, func() (string, error) {
 		res, err := client.Messages.SendMedia(ctx, pnid, to, hello.MediaMessage{
 			Type: hello.MediaDocument, Link: documentURL, Filename: "smoke-test.pdf", Caption: "Smoke test document " + runID,
 		}, hello.WithIdempotencyKey(runID+"-document-link"))
@@ -371,7 +342,7 @@ func main() {
 		return record("document-link", res), nil
 	})
 	if videoURL != "" {
-		sendStep("7 send video by link", "send the video at "+videoURL, func() (string, error) {
+		extraStep("7 send video by link", "send the video at "+videoURL, func() (string, error) {
 			res, err := client.Messages.SendMedia(ctx, pnid, to, hello.MediaMessage{
 				Type: hello.MediaVideo, Link: videoURL, Caption: "Smoke test video " + runID,
 			}, hello.WithIdempotencyKey(runID+"-video-link"))
@@ -384,7 +355,7 @@ func main() {
 		line("SKIP", "7 send video by link", "HELLO_MEDIA_VIDEO_URL not set")
 	}
 	if audioURL != "" {
-		sendStep("7 send audio by link", "send the audio at "+audioURL, func() (string, error) {
+		extraStep("7 send audio by link", "send the audio at "+audioURL, func() (string, error) {
 			res, err := client.Messages.SendMedia(ctx, pnid, to, hello.MediaMessage{
 				Type: hello.MediaAudio, Link: audioURL,
 			}, hello.WithIdempotencyKey(runID+"-audio-link"))
@@ -398,7 +369,7 @@ func main() {
 	}
 
 	// 8. download, upload, send by media id
-	sendStep("8 upload image and send by media id", "download "+imageURL+", upload it and send it by id", func() (string, error) {
+	extraStep("8 upload image and send by media id", "download "+imageURL+", upload it and send it by id", func() (string, error) {
 		data, mime, err := download(ctx, imageURL)
 		if err != nil {
 			return "", err
@@ -429,7 +400,7 @@ func main() {
 			return record(label, res), nil
 		}
 	}
-	sendStep("9 send location", "send a location to "+to, rawSend("location", map[string]any{
+	extraStep("9 send location", "send a location to "+to, rawSend("location", map[string]any{
 		"messaging_product": "whatsapp",
 		"to":                to,
 		"type":              "location",
@@ -437,7 +408,7 @@ func main() {
 			"latitude": 28.6139, "longitude": 77.209, "name": "Smoke test location", "address": "New Delhi, India",
 		},
 	}))
-	sendStep("9 send contacts", "send a contact card to "+to, rawSend("contacts", map[string]any{
+	extraStep("9 send contacts", "send a contact card to "+to, rawSend("contacts", map[string]any{
 		"messaging_product": "whatsapp",
 		"to":                to,
 		"type":              "contacts",
@@ -446,7 +417,7 @@ func main() {
 			"phones": []any{map[string]any{"phone": "+15555550100", "type": "CELL", "wa_id": "15555550100"}},
 		}},
 	}))
-	sendStep("9 send reply buttons", "send reply buttons to "+to, rawSend("buttons", map[string]any{
+	sendStep("6 send interactive reply buttons", "send a static reply-buttons message to "+to, rawSend("buttons", map[string]any{
 		"messaging_product": "whatsapp",
 		"to":                to,
 		"type":              "interactive",
@@ -459,7 +430,7 @@ func main() {
 			}},
 		},
 	}))
-	sendStep("9 send list", "send an interactive list to "+to, rawSend("list", map[string]any{
+	extraStep("9 send list", "send an interactive list to "+to, rawSend("list", map[string]any{
 		"messaging_product": "whatsapp",
 		"to":                to,
 		"type":              "interactive",
@@ -478,11 +449,14 @@ func main() {
 			},
 		},
 	}))
-	if !*send {
+	switch {
+	case !*all:
+		line("SKIP", "9 react to text message", "needs --all")
+	case !*send:
 		line("DRY", "9 react to text message", "would react "+thumbsUp+" to the step 6 message")
-	} else if textWamid == "" {
+	case textWamid == "":
 		line("SKIP", "9 react to text message", "step 6 returned no wamid (send failed or was queued)")
-	} else {
+	default:
 		step("9 react to text message", rawSend("reaction", map[string]any{
 			"messaging_product": "whatsapp",
 			"to":                to,

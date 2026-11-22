@@ -1,17 +1,18 @@
 """Live smoke test for the lakshyapocketlab-hello SDK against the real Hello API.
 
-Steps 1-4 are read-only. Steps 5-11 send real, billed WhatsApp messages and run
-only with --send. Every step prints PASS, FAIL, SKIP or DRY; the run continues
-after a failure. See ../README.md.
+Steps 1-4 are read-only. With --send, step 5 sends the AUTHENTICATION (OTP) template named in
+HELLO_TEMPLATE_NAME, and step 6 sends a static reply-buttons message. Every other message type
+runs only with --all, and needs the recipient's 24-hour window (see ../README.md). Every step
+prints PASS, FAIL, SKIP or DRY; the run continues after a failure.
 
 Usage:
-    python smoke_test.py          # dry run
-    python smoke_test.py --send   # live
+    python smoke_test.py                # dry run
+    python smoke_test.py --send         # live: OTP template and reply buttons
+    python smoke_test.py --send --all   # live: every message type
 """
 
 import argparse
 import os
-import re
 import sys
 import time
 import urllib.request
@@ -60,6 +61,14 @@ def send_step(name: str, would_do: str, fn: Callable[[], str], send: bool) -> No
     step(name, fn)
 
 
+def extra_step(name: str, would_do: str, fn: Callable[[], str], send: bool, all_: bool) -> None:
+    """Extra message types: only with --all (they need the recipient's 24h window to be open)."""
+    if not all_:
+        line("SKIP", name, "needs --all")
+        return
+    send_step(name, would_do, fn, send)
+
+
 def record(label: str, res: Dict[str, Any]) -> str:
     message = res["messages"][0]
     hello_id = message.get("hello_id")
@@ -67,44 +76,28 @@ def record(label: str, res: Dict[str, Any]) -> str:
     return f"hello_id {hello_id}"
 
 
-def body_text(t: Template) -> str:
-    for component in t.get("components") or []:
-        if component.get("type") == "BODY":
-            return component.get("text") or ""
-    return ""
-
-
-def variable_count(t: Template) -> int:
-    indexes = [int(n) for n in re.findall(r"\{\{(\d+)\}\}", body_text(t))]
-    return max(indexes) if indexes else 0
-
-
-def usable(t: Template) -> bool:
-    """Usable here when the only placeholders are body variables."""
-    others = [c for c in t.get("components") or [] if c.get("type") != "BODY"]
-    return not any("{{" in str(c) for c in others)
-
-
-def pick_template(templates: List[Template], wanted: Optional[str], wanted_language: Optional[str]) -> Optional[Template]:
-    if wanted:
-        named = [
-            t
-            for t in templates
-            if t.get("name") == wanted and (not wanted_language or t.get("language") == wanted_language) and usable(t)
-        ]
-        approved = [t for t in named if t.get("status") == "APPROVED"]
-        return (approved or named or [None])[0]
-    approved_all = [t for t in templates if t.get("status") == "APPROVED" and usable(t)]
-    no_variables = [t for t in approved_all if variable_count(t) == 0]
-    return (no_variables or approved_all or [None])[0]
-
-
-def body_components(t: Template) -> Optional[List[Dict[str, Any]]]:
-    n = variable_count(t)
-    if n == 0:
-        return None
-    parameters = [{"type": "text", "text": f"Sample {i}"} for i in range(1, n + 1)]
-    return [{"type": "body", "parameters": parameters}]
+def otp_components(t: Template, otp: str) -> List[Dict[str, Any]]:
+    """Components for an AUTHENTICATION (OTP) template: the code fills body {{1}} and, when the
+    template has a BUTTONS component, the copy-code / one-tap button."""
+    if t.get("category") != "AUTHENTICATION":
+        raise RuntimeError(
+            f"{t.get('name')} is {t.get('category')}; HELLO_TEMPLATE_NAME must be an AUTHENTICATION (OTP) template"
+        )
+    components: List[Dict[str, Any]] = [{"type": "body", "parameters": [{"type": "text", "text": otp}]}]
+    buttons = next(
+        (c.get("buttons") for c in t.get("components") or [] if str(c.get("type", "")).upper() == "BUTTONS"),
+        None,
+    )
+    if isinstance(buttons, list) and buttons:
+        components.append(
+            {
+                "type": "button",
+                "sub_type": "url",
+                "index": "0",
+                "parameters": [{"type": "text", "text": otp}],
+            }
+        )
+    return components
 
 
 def download(url: str) -> "tuple[bytes, str]":
@@ -113,16 +106,23 @@ def download(url: str) -> "tuple[bytes, str]":
         return resp.read(), resp.headers.get_content_type()
 
 
-def run(send: bool, run_id: str, client: Hello) -> None:
+def run(send: bool, all_: bool, run_id: str, client: Hello) -> None:
     to = env("HELLO_TO") or "<HELLO_TO>"
     pnid = env("HELLO_PHONE_NUMBER_ID") or ""
     template_name = env("HELLO_TEMPLATE_NAME")
-    template_language = env("HELLO_TEMPLATE_LANGUAGE")
+    template_language = env("HELLO_TEMPLATE_LANGUAGE") or "en_US"
+    otp = env("HELLO_OTP") or "123456"
     image_url = env("HELLO_MEDIA_IMAGE_URL") or DEFAULT_IMAGE_URL
     document_url = env("HELLO_MEDIA_DOCUMENT_URL") or DEFAULT_DOCUMENT_URL
     video_url = env("HELLO_MEDIA_VIDEO_URL")
     audio_url = env("HELLO_MEDIA_AUDIO_URL")
     inbound_id = env("HELLO_INBOUND_MESSAGE_ID")
+
+    def sstep(name: str, would_do: str, fn: Callable[[], str]) -> None:
+        send_step(name, would_do, fn, send)
+
+    def xstep(name: str, would_do: str, fn: Callable[[], str]) -> None:
+        extra_step(name, would_do, fn, send, all_)
 
     # 1. ping
     def ping() -> str:
@@ -144,24 +144,25 @@ def run(send: bool, run_id: str, client: Hello) -> None:
 
     step("2 find phone number", find_number)
 
-    # 3. list templates and pick one
-    def list_and_pick() -> str:
+    # 3. templates on the WABA, then find HELLO_TEMPLATE_NAME
+    def list_and_find() -> str:
         if not state.get("waba"):
             raise RuntimeError("no WABA id from step 2")
         templates = client.templates.list(state["waba"], limit=100)["data"]
         for t in templates:
-            print(f"     {t.get('name')}  {t.get('language')}  {t.get('status')}  {t.get('category')}  "
-                  f"variables={variable_count(t)}")
-        picked = pick_template(templates, template_name, template_language)
-        if picked is None:
-            if template_name:
-                suffix = f" in {template_language}" if template_language else ""
-                raise RuntimeError(f"no usable template named {template_name}{suffix}")
-            raise RuntimeError("no APPROVED template this smoke test can fill in")
-        state["template"] = picked
-        return f"using {picked['name']} ({picked['language']}, {picked['status']}, {variable_count(picked)} variables)"
+            print(f"     {t.get('name')}  {t.get('language')}  {t.get('status')}  {t.get('category')}")
+        if not template_name:
+            return f"{len(templates)} templates (set HELLO_TEMPLATE_NAME to pick one)"
+        found = next(
+            (t for t in templates if t.get("name") == template_name and t.get("language") == template_language),
+            None,
+        )
+        if found is None:
+            raise RuntimeError(f"no template {template_name} in {template_language} on WABA {state['waba']}")
+        state["template"] = found
+        return f"using {found['name']} ({found['language']}, {found['category']}, {found['status']})"
 
-    step("3 list templates and pick one", list_and_pick)
+    step("3 list templates and find HELLO_TEMPLATE_NAME", list_and_find)
 
     # 4. get template by id
     def get_template() -> str:
@@ -175,11 +176,7 @@ def run(send: bool, run_id: str, client: Hello) -> None:
 
     step("4 get template by id", get_template)
 
-    # 5-11 send or write; each one is gated by --send.
-
-    def template_name_for_dry() -> str:
-        t = state.get("template")
-        return t["name"] if t else "?"
+    # 5-11 send or write. Steps 5 and 6 (reply buttons) send by default; the rest need --all.
 
     def send_template() -> str:
         t = state.get("template")
@@ -190,12 +187,16 @@ def run(send: bool, run_id: str, client: Hello) -> None:
             to,
             t["name"],
             t["language"],
-            components=body_components(t),
+            components=otp_components(t, otp),
             idempotency_key=f"{run_id}-template",
         )
         return record("template", res)
 
-    send_step("5 send template", f"send template {template_name_for_dry()} to {to}", send_template, send)
+    sstep(
+        "5 send OTP template",
+        f"send template {template_name or '<HELLO_TEMPLATE_NAME>'} with code {otp} to {to}",
+        send_template,
+    )
 
     def send_text() -> str:
         res = client.messages.send_text(
@@ -208,9 +209,9 @@ def run(send: bool, run_id: str, client: Hello) -> None:
         state["text_wamid"] = res["messages"][0].get("id") or None
         return record("text", res)
 
-    send_step("6 send text", f"send a text message to {to}", send_text, send)
+    xstep("6 send text", f"send a text message to {to}", send_text)
 
-    send_step(
+    xstep(
         "7 send image by link",
         f"send the image at {image_url}",
         lambda: record(
@@ -224,9 +225,8 @@ def run(send: bool, run_id: str, client: Hello) -> None:
                 idempotency_key=f"{run_id}-image-link",
             ),
         ),
-        send,
     )
-    send_step(
+    xstep(
         "7 send document by link",
         f"send the document at {document_url}",
         lambda: record(
@@ -241,10 +241,9 @@ def run(send: bool, run_id: str, client: Hello) -> None:
                 idempotency_key=f"{run_id}-document-link",
             ),
         ),
-        send,
     )
     if video_url:
-        send_step(
+        xstep(
             "7 send video by link",
             f"send the video at {video_url}",
             lambda: record(
@@ -258,12 +257,11 @@ def run(send: bool, run_id: str, client: Hello) -> None:
                     idempotency_key=f"{run_id}-video-link",
                 ),
             ),
-            send,
         )
     else:
         line("SKIP", "7 send video by link", "HELLO_MEDIA_VIDEO_URL not set")
     if audio_url:
-        send_step(
+        xstep(
             "7 send audio by link",
             f"send the audio at {audio_url}",
             lambda: record(
@@ -276,7 +274,6 @@ def run(send: bool, run_id: str, client: Hello) -> None:
                     idempotency_key=f"{run_id}-audio-link",
                 ),
             ),
-            send,
         )
     else:
         line("SKIP", "7 send audio by link", "HELLO_MEDIA_AUDIO_URL not set")
@@ -294,14 +291,9 @@ def run(send: bool, run_id: str, client: Hello) -> None:
         )
         return f"media id {uploaded['id']}, {record('image-id', res)}"
 
-    send_step(
-        "8 upload image and send by media id",
-        f"download {image_url}, upload it and send it by id",
-        upload_and_send,
-        send,
-    )
+    xstep("8 upload image and send by media id", f"download {image_url}, upload it and send it by id", upload_and_send)
 
-    send_step(
+    xstep(
         "9 send location",
         f"send a location to {to}",
         lambda: record(
@@ -322,9 +314,8 @@ def run(send: bool, run_id: str, client: Hello) -> None:
                 idempotency_key=f"{run_id}-location",
             ),
         ),
-        send,
     )
-    send_step(
+    xstep(
         "9 send contacts",
         f"send a contact card to {to}",
         lambda: record(
@@ -345,11 +336,10 @@ def run(send: bool, run_id: str, client: Hello) -> None:
                 idempotency_key=f"{run_id}-contacts",
             ),
         ),
-        send,
     )
-    send_step(
-        "9 send reply buttons",
-        f"send reply buttons to {to}",
+    sstep(
+        "6 send interactive reply buttons",
+        f"send a static reply-buttons message to {to}",
         lambda: record(
             "buttons",
             client.messages.send(
@@ -372,9 +362,8 @@ def run(send: bool, run_id: str, client: Hello) -> None:
                 idempotency_key=f"{run_id}-buttons",
             ),
         ),
-        send,
     )
-    send_step(
+    xstep(
         "9 send list",
         f"send an interactive list to {to}",
         lambda: record(
@@ -405,7 +394,6 @@ def run(send: bool, run_id: str, client: Hello) -> None:
                 idempotency_key=f"{run_id}-list",
             ),
         ),
-        send,
     )
 
     def react() -> str:
@@ -423,7 +411,9 @@ def run(send: bool, run_id: str, client: Hello) -> None:
             ),
         )
 
-    if not send:
+    if not all_:
+        line("SKIP", "9 react to text message", "needs --all")
+    elif not send:
         line("DRY", "9 react to text message", f"would react {THUMBS_UP} to the step 6 message")
     elif not state.get("text_wamid"):
         line("SKIP", "9 react to text message", "step 6 returned no wamid (send failed or was queued)")
@@ -470,6 +460,11 @@ def run(send: bool, run_id: str, client: Hello) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Live smoke test for the Hello Python SDK.")
     parser.add_argument("--send", action="store_true", help="send real, billed messages (default: dry run)")
+    parser.add_argument(
+        "--all",
+        action="store_true",
+        help="also send the other message types (needs the recipient's 24-hour window)",
+    )
     args = parser.parse_args()
 
     api_key = env("HELLO_API_KEY")
@@ -478,6 +473,9 @@ def main() -> int:
         return 1
     if not env("HELLO_PHONE_NUMBER_ID"):
         print("HELLO_PHONE_NUMBER_ID is not set (see smoke-test/.env.example). Nothing was run.")
+        return 1
+    if args.send and not env("HELLO_TEMPLATE_NAME"):
+        print("HELLO_TEMPLATE_NAME is not set. Name an AUTHENTICATION (OTP) template for --send. Nothing was run.")
         return 1
     if args.send and not env("HELLO_TO"):
         print("HELLO_TO is not set. It is needed for --send. Nothing was run.")
@@ -488,7 +486,7 @@ def main() -> int:
     print(f"Hello smoke test, run {run_id}: {mode}")
 
     with Hello(api_key=api_key, base_url=env("HELLO_BASE_URL")) as client:
-        run(args.send, run_id, client)
+        run(args.send, args.all, run_id, client)
 
     print(
         f"\nSummary: {tally['PASS']} passed, {tally['FAIL']} failed, {tally['SKIP']} skipped, "
