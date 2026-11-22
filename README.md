@@ -3,6 +3,7 @@
 Sample apps for [Hello](https://lakshyapocketlab.com), the WhatsApp Business API. Each folder is self-contained, with its own README (what it does, prerequisites, environment variables, how to run it).
 
 [![CI](https://github.com/lakshyapocketlab/hello-examples/actions/workflows/ci.yml/badge.svg)](https://github.com/lakshyapocketlab/hello-examples/actions/workflows/ci.yml)
+[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/lakshyapocketlab/hello-examples/badge)](https://scorecard.dev/viewer/?uri=github.com/lakshyapocketlab/hello-examples)
 
 ## Examples
 
