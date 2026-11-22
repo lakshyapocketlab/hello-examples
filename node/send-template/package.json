@@ -9,7 +9,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@lakshyapocketlab/hello": "^0.1.0"
+    "@lakshyapocketlab/hello": "^1.0.0"
   },
   "devDependencies": {
     "@types/node": "^20.19.43",

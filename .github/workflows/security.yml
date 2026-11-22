@@ -42,12 +42,8 @@ jobs:
         with:
           python-version: "3.12"
       - run: python -m pip install pip-audit==2.10.1
-      - name: Audit the SDK's dependency tree
-        run: |
-          # The example's only requirement is the SDK itself (audited in hello-python);
-          # audit the SDK's runtime dependency here so this job does not depend on a PyPI release.
-          echo "httpx" > "$RUNNER_TEMP/requirements.txt"
-          pip-audit -r "$RUNNER_TEMP/requirements.txt"
+      - name: Audit the Python example's dependencies
+        run: pip-audit -r python/send-text/requirements.txt
 
   actionlint:
     name: actionlint

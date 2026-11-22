@@ -18,28 +18,13 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-          repository: lakshyapocketlab/hello-node
-          path: .sdk/hello-node
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 20
-      - name: Build the SDK (not published yet)
-        run: npm ci && npm run build
-        working-directory: .sdk/hello-node
       - name: Install and type-check
         working-directory: ${{ matrix.example }}
         run: |
-          # The SDK is not on npm yet: drop the registry dependency and link the local build.
-          if grep -q '"@lakshyapocketlab/hello"' package.json; then
-            npm pkg delete dependencies.@lakshyapocketlab/hello
-            npm install
-            npm install --no-save "$GITHUB_WORKSPACE/.sdk/hello-node"
-          else
-            npm install
-          fi
+          npm install --no-audit --no-fund
           npm run typecheck
 
   python:
@@ -51,7 +36,11 @@ jobs:
       - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
-      - run: python -m py_compile python/send-text/send_text.py
+      - name: Install the published SDK and compile
+        run: |
+          python -m pip install -r python/send-text/requirements.txt
+          python -c "import lakshyapocketlab_hello"
+          python -m py_compile python/send-text/send_text.py
 
   go:
     runs-on: ubuntu-latest
@@ -59,18 +48,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-          repository: lakshyapocketlab/hello-go
-          path: .sdk/hello-go
       - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7.1.0
         with:
           go-version: stable
       - name: gofmt and go vet
         working-directory: go/send-template
         run: |
-          # Until hello-go has a release tag, build against the checkout.
-          go mod edit -replace github.com/lakshyapocketlab/hello-go="$GITHUB_WORKSPACE/.sdk/hello-go"
           test -z "$(gofmt -l .)"
           go vet ./...

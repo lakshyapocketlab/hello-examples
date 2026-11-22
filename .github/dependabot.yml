@@ -18,6 +18,9 @@ updates:
     commit-message:
       prefix: "chore(deps)"
     groups:
+      # express and its types must move together.
+      express:
+        patterns: ["express", "@types/express"]
       minor-and-patch:
         update-types: ["minor", "patch"]
   - package-ecosystem: gomod

@@ -26,21 +26,14 @@ Sample apps for [Hello](https://lakshyapocketlab.com), the WhatsApp Business API
 
 Messages are real and billed by WhatsApp. Templates can start a conversation; free-form messages need an open 24-hour window.
 
-## Installing the SDKs before they are published
-
-The SDKs are not on npm, PyPI or a Go release tag yet. Until they are, install them from GitHub:
+## Installing the SDKs
 
 ```sh
-# Node.js
-npm i github:lakshyapocketlab/hello-node
-# Python
-pip install git+https://github.com/lakshyapocketlab/hello-python
-# Go (no release tag yet: use a local checkout)
-git clone https://github.com/lakshyapocketlab/hello-go
-go mod edit -replace github.com/lakshyapocketlab/hello-go=./hello-go
+npm i @lakshyapocketlab/hello                # Node.js
+pip install lakshyapocketlab-hello           # Python
+go get github.com/lakshyapocketlab/hello-go  # Go
+npx @lakshyapocketlab/hello-mcp              # MCP server for AI agents
 ```
-
-The Node.js package is built to `dist/` before publishing. If a GitHub install has no build output, clone it, run `npm ci && npm run build`, and install the folder with `npm i /path/to/hello-node`.
 
 Once published, the examples work with the normal commands (`npm i @lakshyapocketlab/hello`, `pip install lakshyapocketlab-hello`, `go get github.com/lakshyapocketlab/hello-go`).
 

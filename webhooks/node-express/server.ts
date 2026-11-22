@@ -47,7 +47,12 @@ const route = `/hooks/whatsapp/${PATH_SECRET}`;
 app.get(route, (req, res) => {
   const { "hub.mode": mode, "hub.verify_token": token, "hub.challenge": challenge } = req.query;
   if (mode === "subscribe" && typeof token === "string" && safeEqual(token, VERIFY_TOKEN)) {
-    res.status(200).type("text/plain").send(String(challenge));
+    // Meta's challenge is numeric. Echo only digits, so this endpoint can never reflect markup.
+    if (typeof challenge !== "string" || !/^\d{1,64}$/.test(challenge)) {
+      res.sendStatus(400);
+      return;
+    }
+    res.status(200).type("text/plain").set("X-Content-Type-Options", "nosniff").send(challenge);
     return;
   }
   res.sendStatus(403);
