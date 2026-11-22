@@ -17,7 +17,7 @@ In n8n, **Credentials, Create credential, Bearer Auth**. Name it `Hello API key`
 | Field | Value |
 |---|---|
 | Method | `POST` |
-| URL | `https://api.lakshyapocketlab.com/v1/{phone_number_id}/messages` |
+| URL | `https://helloapi.lakshyapocketlab.com/v1/{phone_number_id}/messages` |
 | Authentication | Generic Credential Type, Bearer Auth, your `Hello API key` |
 | Send Headers | `Idempotency-Key`: a unique value per message (optional, but it makes retries safe) |
 | Send Body | JSON |
@@ -41,7 +41,7 @@ Body for a template with one body variable:
 
 A text message (needs an open 24-hour window) is `{"to": "+919999999999", "type": "text", "text": {"body": "Hello"}}`.
 
-The response contains the message `id` and `hello_id`. Follow a message with `GET https://api.lakshyapocketlab.com/v1/messages/{hello_id}` to see queued, sent, delivered, read or failed.
+The response contains the message `id` and `hello_id`. Follow a message with `GET https://helloapi.lakshyapocketlab.com/v1/messages/{hello_id}` to see queued, sent, delivered, read or failed.
 
 ## Importable workflow
 

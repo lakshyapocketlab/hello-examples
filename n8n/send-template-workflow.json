@@ -31,7 +31,7 @@
     {
       "parameters": {
         "method": "POST",
-        "url": "=https://api.lakshyapocketlab.com/v1/{{ $json.phone_number_id }}/messages",
+        "url": "=https://helloapi.lakshyapocketlab.com/v1/{{ $json.phone_number_id }}/messages",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpBearerAuth",
         "sendHeaders": true,

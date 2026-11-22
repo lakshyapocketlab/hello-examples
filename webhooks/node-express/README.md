@@ -39,7 +39,7 @@ npm start
 Then set the webhook for a number, with the token you exported (URL must be HTTPS, at most 200 characters):
 
 ```sh
-curl -X PUT "https://api.lakshyapocketlab.com/v1/$PHONE_NUMBER_ID/webhook-override" \
+curl -X PUT "https://helloapi.lakshyapocketlab.com/v1/$PHONE_NUMBER_ID/webhook-override" \
   -H "Authorization: Bearer $HELLO_API_KEY" \
   -H "Content-Type: application/json" \
   -d "{\"url\": \"https://YOUR-HOST/hooks/whatsapp/$WEBHOOK_PATH_SECRET\",

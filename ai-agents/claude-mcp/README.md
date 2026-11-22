@@ -1,7 +1,7 @@
 # Connect Claude, Cursor or Codex to Hello (MCP)
 
 Hello runs a [Model Context Protocol](https://modelcontextprotocol.io) server at
-`https://api.lakshyapocketlab.com/mcp`. Connect an AI assistant to it and ask in plain language:
+`https://helloapi.lakshyapocketlab.com/mcp`. Connect an AI assistant to it and ask in plain language:
 list your numbers, send a template, check delivery, create templates. Every tool call is the
 matching `/v1` request made with your API key, so plan limits and billing apply.
 
@@ -17,7 +17,7 @@ Full reference: https://lakshyapocketlab.com/docs/ai/integrate-with-ai/
 ### Claude Code
 
 ```sh
-claude mcp add --transport http hello https://api.lakshyapocketlab.com/mcp \
+claude mcp add --transport http hello https://helloapi.lakshyapocketlab.com/mcp \
   --header "Authorization: Bearer $HELLO_API_KEY"
 claude mcp list
 ```
@@ -30,7 +30,7 @@ claude mcp list
 {
   "mcpServers": {
     "hello": {
-      "url": "https://api.lakshyapocketlab.com/mcp",
+      "url": "https://helloapi.lakshyapocketlab.com/mcp",
       "headers": { "Authorization": "Bearer ${env:HELLO_API_KEY}" }
     }
   }
@@ -43,7 +43,7 @@ claude mcp list
 
 ```toml
 [mcp_servers.hello]
-url = "https://api.lakshyapocketlab.com/mcp"
+url = "https://helloapi.lakshyapocketlab.com/mcp"
 bearer_token_env_var = "HELLO_API_KEY"
 ```
 
