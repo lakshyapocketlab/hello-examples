@@ -1,7 +1,9 @@
 # Send WhatsApp messages from n8n
 
-[n8n](https://n8n.io) has no Hello node, but you do not need one: Hello's `/v1` API takes the
-WhatsApp Cloud API message body, so the **HTTP Request** node sends messages directly.
+Two ways to use Hello from [n8n](https://n8n.io):
+
+- **The Hello community node** ([`@lakshyapocketlab/n8n-nodes-hello`](https://www.npmjs.com/package/@lakshyapocketlab/n8n-nodes-hello)): send messages and templates, and start workflows when a number receives a message. See [AI assistant for a WhatsApp Business app number](#ai-assistant-for-a-whatsapp-business-app-number) below.
+- **The HTTP Request node**, with no community node: Hello's `/v1` API takes the WhatsApp Cloud API message body, so the HTTP Request node sends messages directly. The rest of this page shows how.
 
 ## Prerequisites
 
@@ -55,3 +57,20 @@ The response contains the message `id` and `hello_id`. Follow a message with `GE
 Messages are real and billed. To send from another trigger (a webhook, a spreadsheet row, a CRM event), replace the Manual Trigger and map its fields in the **Settings** node.
 
 Docs: [Send a message](https://lakshyapocketlab.com/docs/api/send-message/), [Authentication](https://lakshyapocketlab.com/docs/getting-started/authentication/).
+
+## AI assistant for a WhatsApp Business app number
+
+[`whatsapp-business-app-ai-assistant.json`](whatsapp-business-app-ai-assistant.json) uses the Hello community node. A customer writes to your number, an AI agent replies, and when someone on your team answers from the WhatsApp Business app on the phone (coexistence), the assistant stays quiet for that customer for two hours.
+
+**Hello Trigger, Message or echo?, Assistant allowed?, Text and not paused?, AI Agent (chat model + Simple Memory), Send reply**, plus **Person replied** on the echo branch.
+
+1. Install the node: **Settings, Community nodes, Install a community node**, enter `@lakshyapocketlab/n8n-nodes-hello`. It installs on self-hosted n8n; n8n Cloud support follows n8n's verification review.
+2. **Workflows, Import from file**, choose `whatsapp-business-app-ai-assistant.json`.
+3. Select your **Hello API** credential on **Hello Trigger** and **Send reply**, and your model credential on **OpenAI Chat Model** (or swap in another chat model).
+4. On **Hello Trigger**, pick your phone number. Its events are **Incoming Message** and **Coexistence Echo**.
+5. On **AI Agent**, replace the `REPLACE` lines in the system message with your own hours, prices and policies.
+6. **Publish** the workflow and message the number from another phone.
+
+While the workflow is published, the number's incoming messages go to n8n instead of the Hello inbox; unpublish to give them back. The trigger needs a plan with direct webhooks and a public HTTPS n8n address.
+
+Step-by-step guide with screenshots, in 7 languages: [Connect the WhatsApp Business app to n8n with the official WhatsApp API](https://lakshyapocketlab.com/connect-whatsapp-business-app-to-n8n/).
