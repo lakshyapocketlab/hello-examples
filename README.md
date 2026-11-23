@@ -1,3 +1,10 @@
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/lakshyapocketlab/.github/main/assets/hello-logo-on-dark.svg">
+    <img alt="Hello" src="https://raw.githubusercontent.com/lakshyapocketlab/.github/main/assets/hello-logo.svg" height="56">
+  </picture>
+</p>
+
 # Hello examples for the WhatsApp Business API
 
 Sample apps for [Hello](https://lakshyapocketlab.com), the WhatsApp Business API. Each folder is self-contained, with its own README (what it does, prerequisites, environment variables, how to run it).
